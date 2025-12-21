@@ -1,5 +1,3 @@
-import 'package:equatable/equatable.dart';
-
 enum TransactionStatus {
   pending,
   confirmed,
@@ -14,7 +12,7 @@ enum TransactionType {
   contractInteraction,
 }
 
-class WalletTransaction extends Equatable {
+class WalletTransaction {
   final String hash;
   final String from;
   final String to;
@@ -28,9 +26,9 @@ class WalletTransaction extends Equatable {
   final String? tokenSymbol;
   final int? tokenDecimals;
   final int? blockNumber;
-  final String? errorMessage;
+  final String? data;
 
-  const WalletTransaction({
+  WalletTransaction({
     required this.hash,
     required this.from,
     required this.to,
@@ -44,54 +42,53 @@ class WalletTransaction extends Equatable {
     this.tokenSymbol,
     this.tokenDecimals,
     this.blockNumber,
-    this.errorMessage,
+    this.data,
   });
 
-  @override
-  List<Object?> get props => [hash, networkId];
-
+  // Computed properties
+  bool get isReceive => type == TransactionType.receive;
+  bool get isSend => type == TransactionType.send;
+  bool get isSwap => type == TransactionType.swap;
   bool get isPending => status == TransactionStatus.pending;
   bool get isConfirmed => status == TransactionStatus.confirmed;
   bool get isFailed => status == TransactionStatus.failed;
-  bool get isSend => type == TransactionType.send;
-  bool get isReceive => type == TransactionType.receive;
 
-  BigInt get totalFee => gasUsed * gasPrice;
+  BigInt get fee => gasUsed * gasPrice;
 
   double get formattedValue {
     final decimals = tokenDecimals ?? 18;
-    if (value == BigInt.zero) return 0.0;
     return value / BigInt.from(10).pow(decimals);
   }
 
   double get formattedFee {
-    if (totalFee == BigInt.zero) return 0.0;
-    return totalFee / BigInt.from(10).pow(18);
+    return fee / BigInt.from(10).pow(18);
   }
 
   String get displayValue {
-    final formatted = formattedValue;
-    if (formatted == 0) return '0';
-    if (formatted < 0.0001) return '<0.0001';
-    if (formatted < 1) return formatted.toStringAsFixed(6);
-    return formatted.toStringAsFixed(4);
+    final val = formattedValue;
+    if (val == 0) return '0';
+    if (val < 0.0001) return '<0.0001';
+    if (val < 1) return val.toStringAsFixed(6);
+    if (val < 1000) return val.toStringAsFixed(4);
+    return val.toStringAsFixed(2);
   }
 
   String get shortHash {
     if (hash.length < 16) return hash;
-    return '${hash.substring(0, 8)}...${hash.substring(hash.length - 6)}';
+    return '${hash.substring(0, 10)}...${hash.substring(hash.length - 6)}';
   }
 
   String get shortFrom {
-    if (from.length < 16) return from;
-    return '${from.substring(0, 8)}...${from.substring(from.length - 4)}';
+    if (from.length < 12) return from;
+    return '${from.substring(0, 6)}...${from.substring(from.length - 4)}';
   }
 
   String get shortTo {
-    if (to.length < 16) return to;
-    return '${to.substring(0, 8)}...${to.substring(to.length - 4)}';
+    if (to.length < 12) return to;
+    return '${to.substring(0, 6)}...${to.substring(to.length - 4)}';
   }
 
+  // JSON serialization
   Map<String, dynamic> toJson() {
     return {
       'hash': hash,
@@ -107,26 +104,32 @@ class WalletTransaction extends Equatable {
       'tokenSymbol': tokenSymbol,
       'tokenDecimals': tokenDecimals,
       'blockNumber': blockNumber,
-      'errorMessage': errorMessage,
+      'data': data,
     };
   }
 
   factory WalletTransaction.fromJson(Map<String, dynamic> json) {
     return WalletTransaction(
-      hash: json['hash'] as String,
-      from: json['from'] as String,
-      to: json['to'] as String,
-      value: BigInt.parse(json['value'] as String),
-      gasUsed: BigInt.parse(json['gasUsed'] as String),
-      gasPrice: BigInt.parse(json['gasPrice'] as String),
-      timestamp: DateTime.parse(json['timestamp'] as String),
-      status: TransactionStatus.values.byName(json['status'] as String),
-      type: TransactionType.values.byName(json['type'] as String),
-      networkId: json['networkId'] as String,
-      tokenSymbol: json['tokenSymbol'] as String?,
-      tokenDecimals: json['tokenDecimals'] as int?,
-      blockNumber: json['blockNumber'] as int?,
-      errorMessage: json['errorMessage'] as String?,
+      hash: json['hash'],
+      from: json['from'],
+      to: json['to'],
+      value: BigInt.parse(json['value']),
+      gasUsed: BigInt.parse(json['gasUsed']),
+      gasPrice: BigInt.parse(json['gasPrice']),
+      timestamp: DateTime.parse(json['timestamp']),
+      status: TransactionStatus.values.firstWhere(
+        (e) => e.name == json['status'],
+        orElse: () => TransactionStatus.pending,
+      ),
+      type: TransactionType.values.firstWhere(
+        (e) => e.name == json['type'],
+        orElse: () => TransactionType.send,
+      ),
+      networkId: json['networkId'],
+      tokenSymbol: json['tokenSymbol'],
+      tokenDecimals: json['tokenDecimals'],
+      blockNumber: json['blockNumber'],
+      data: json['data'],
     );
   }
 
@@ -144,7 +147,7 @@ class WalletTransaction extends Equatable {
     String? tokenSymbol,
     int? tokenDecimals,
     int? blockNumber,
-    String? errorMessage,
+    String? data,
   }) {
     return WalletTransaction(
       hash: hash ?? this.hash,
@@ -160,7 +163,15 @@ class WalletTransaction extends Equatable {
       tokenSymbol: tokenSymbol ?? this.tokenSymbol,
       tokenDecimals: tokenDecimals ?? this.tokenDecimals,
       blockNumber: blockNumber ?? this.blockNumber,
-      errorMessage: errorMessage ?? this.errorMessage,
+      data: data ?? this.data,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WalletTransaction && hash == other.hash;
+
+  @override
+  int get hashCode => hash.hashCode;
 }

@@ -54,6 +54,11 @@ dependencies:
   
   # Biometrics
   local_auth: ^2.1.8
+  
+  # Phase 2 - New dependencies
+  flutter_local_notifications: ^17.2.1
+  url_launcher: ^6.2.2
+  share_plus: ^7.2.1
 
 dev_dependencies:
   flutter_test:
@@ -79,4 +84,4 @@ flutter:
   #       - asset: assets/fonts/Inter-SemiBold.ttf
   #         weight: 600
   #       - asset: assets/fonts/Inter-Bold.ttf
-  #         weight: 700
+  #         weight: 700flutter clean

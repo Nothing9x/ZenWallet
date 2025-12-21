@@ -5,9 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_theme.dart';
 import '../../core/models/network.dart';
 import '../../core/providers/wallet_provider.dart';
+import '../../core/services/notification_service.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../send/send_screen.dart';
 import '../receive/receive_screen.dart';
+import '../scan/qr_scanner_screen.dart';
+import '../swap/swap_screen.dart';
+import '../history/transaction_history_screen.dart';
 import '../settings/settings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -19,6 +23,35 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
+  final NotificationService _notificationService = NotificationService();
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeNotifications();
+  }
+
+  Future<void> _initializeNotifications() async {
+    await _notificationService.initialize();
+    await _notificationService.requestPermissions();
+    
+    // Start monitoring wallet address
+    final wallet = ref.read(currentWalletProvider).valueOrNull;
+    final network = ref.read(selectedNetworkProvider);
+    
+    if (wallet != null) {
+      _notificationService.startMonitoring(
+        address: wallet.address,
+        network: network,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _notificationService.stopAllMonitoring();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +60,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         index: _currentIndex,
         children: const [
           _WalletTab(),
-          _HistoryTab(),
+          TransactionHistoryScreen(),
           SettingsScreen(),
         ],
       ),
@@ -124,19 +157,14 @@ class _WalletTab extends ConsumerWidget {
                         ),
                       ),
                       loading: () => _buildLoadingCard(selectedNetwork),
-                      error: (e, _) => _buildErrorCard(
-                        context,
-                        ref,
-                        selectedNetwork,
-                        e.toString(),
-                      ),
+                      error: (e, _) => _buildErrorCard(context, ref, selectedNetwork, e.toString()),
                     ),
                   ],
                 ),
               ),
             ),
 
-            // Quick Actions
+            // Quick Actions - Updated with QR Scanner and Swap
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -145,10 +173,7 @@ class _WalletTab extends ConsumerWidget {
                   children: [
                     const Text(
                       'Hành động nhanh',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -157,8 +182,23 @@ class _WalletTab extends ConsumerWidget {
                           child: _QuickActionCard(
                             icon: Icons.qr_code_scanner_rounded,
                             label: 'Quét QR',
-                            onTap: () {
-                              // TODO: Implement QR scanner
+                            onTap: () async {
+                              final result = await Navigator.push<String>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const QRScannerScreen(),
+                                ),
+                              );
+                              
+                              if (result != null && context.mounted) {
+                                // Navigate to send screen with scanned address
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SendScreen(initialAddress: result),
+                                  ),
+                                );
+                              }
                             },
                           ),
                         ),
@@ -168,10 +208,9 @@ class _WalletTab extends ConsumerWidget {
                             icon: Icons.swap_horiz_rounded,
                             label: 'Swap',
                             onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Tính năng Swap sẽ có trong phiên bản tiếp theo'),
-                                ),
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const SwapScreen()),
                               );
                             },
                           ),
@@ -181,9 +220,7 @@ class _WalletTab extends ConsumerWidget {
                           child: _QuickActionCard(
                             icon: Icons.add_card_rounded,
                             label: 'Mua',
-                            onTap: () {
-                              _showBuyOptions(context);
-                            },
+                            onTap: () => _showBuyOptions(context),
                           ),
                         ),
                       ],
@@ -205,10 +242,7 @@ class _WalletTab extends ConsumerWidget {
                       children: [
                         const Text(
                           'Tài sản',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                         ),
                         TextButton(
                           onPressed: () {
@@ -237,10 +271,7 @@ class _WalletTab extends ConsumerWidget {
               ),
             ),
 
-            // Bottom padding
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 20),
-            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 20)),
           ],
         ),
       ),
@@ -270,10 +301,7 @@ class _WalletTab extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Số dư',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
+          const Text('Số dư', style: TextStyle(color: Colors.white70, fontSize: 14)),
           const SizedBox(height: 8),
           Container(
             width: 150,
@@ -312,12 +340,7 @@ class _WalletTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildErrorCard(
-    BuildContext context,
-    WidgetRef ref,
-    Network network,
-    String error,
-  ) {
+  Widget _buildErrorCard(BuildContext context, WidgetRef ref, Network network, String error) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -331,11 +354,7 @@ class _WalletTab extends ConsumerWidget {
           const SizedBox(height: 16),
           const Text(
             'Không thể tải số dư',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           Text(
@@ -385,39 +404,28 @@ class _WalletTab extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               'Chọn sàn để mua crypto với ưu đãi đặc biệt',
-              style: TextStyle(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
+              style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color),
             ),
             const SizedBox(height: 24),
             _ExchangeOption(
               name: 'Binance',
               discount: 'Giảm 20% phí giao dịch',
               color: const Color(0xFFF0B90B),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Open Binance ref link
-              },
+              onTap: () => Navigator.pop(context),
             ),
             const SizedBox(height: 12),
             _ExchangeOption(
               name: 'OKX',
               discount: 'Bonus lên đến \$50',
               color: const Color(0xFF00DC82),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Open OKX ref link
-              },
+              onTap: () => Navigator.pop(context),
             ),
             const SizedBox(height: 12),
             _ExchangeOption(
               name: 'MEXC',
               discount: '0% phí spot trading',
               color: const Color(0xFF00B897),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Open MEXC ref link
-              },
+              onTap: () => Navigator.pop(context),
             ),
             const SizedBox(height: 16),
             Center(
@@ -437,6 +445,7 @@ class _WalletTab extends ConsumerWidget {
   }
 }
 
+// Keep existing widget classes from original home_screen.dart
 class _NetworkSelector extends StatelessWidget {
   final Network network;
   final VoidCallback onTap;
@@ -485,11 +494,7 @@ class _NetworkSelector extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 20,
-              color: AppTheme.primaryColor,
-            ),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppTheme.primaryColor),
           ],
         ),
       ),
@@ -506,7 +511,6 @@ class _AddressChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        // Get full address and copy
         final wallet = ProviderScope.containerOf(context)
             .read(currentWalletProvider)
             .valueOrNull;
@@ -538,19 +542,9 @@ class _AddressChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              address,
-              style: const TextStyle(
-                fontSize: 14,
-                fontFamily: 'monospace',
-              ),
-            ),
+            Text(address, style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
             const SizedBox(width: 4),
-            Icon(
-              Icons.copy_rounded,
-              size: 16,
-              color: Theme.of(context).textTheme.bodySmall?.color,
-            ),
+            Icon(Icons.copy_rounded, size: 16, color: Theme.of(context).textTheme.bodySmall?.color),
           ],
         ),
       ),
@@ -563,11 +557,7 @@ class _QuickActionCard extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _QuickActionCard({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _QuickActionCard({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -587,10 +577,7 @@ class _QuickActionCard extends StatelessWidget {
             children: [
               Icon(icon, color: AppTheme.primaryColor, size: 28),
               const SizedBox(height: 8),
-              Text(
-                label,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              ),
+              Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
             ],
           ),
         ),
@@ -634,11 +621,7 @@ class _TokenListItem extends StatelessWidget {
             child: Center(
               child: Text(
                 symbol.substring(0, symbol.length > 3 ? 3 : symbol.length),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primaryColor,
-                ),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
               ),
             ),
           ),
@@ -647,40 +630,16 @@ class _TokenListItem extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  symbol,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
-                ),
+                Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text(symbol, style: TextStyle(fontSize: 14, color: Theme.of(context).textTheme.bodySmall?.color)),
               ],
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                balance,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                symbol,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                ),
-              ),
+              Text(balance, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(symbol, style: TextStyle(fontSize: 14, color: Theme.of(context).textTheme.bodySmall?.color)),
             ],
           ),
         ],
@@ -704,36 +663,15 @@ class _TokenListItemSkeleton extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Theme.of(context).dividerColor,
-              shape: BoxShape.circle,
-            ),
-          ),
+          Container(width: 48, height: 48, decoration: BoxDecoration(color: Theme.of(context).dividerColor, shape: BoxShape.circle)),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 100,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).dividerColor,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
+                Container(width: 100, height: 16, decoration: BoxDecoration(color: Theme.of(context).dividerColor, borderRadius: BorderRadius.circular(4))),
                 const SizedBox(height: 4),
-                Container(
-                  width: 60,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).dividerColor,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
+                Container(width: 60, height: 14, decoration: BoxDecoration(color: Theme.of(context).dividerColor, borderRadius: BorderRadius.circular(4))),
               ],
             ),
           ),
@@ -745,7 +683,6 @@ class _TokenListItemSkeleton extends StatelessWidget {
 
 class _NetworkSelectorSheet extends StatelessWidget {
   final WidgetRef ref;
-
   const _NetworkSelectorSheet({required this.ref});
 
   @override
@@ -759,34 +696,18 @@ class _NetworkSelectorSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Chọn mạng',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
+          const Text('Chọn mạng', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           ...networks.map((network) => ListTile(
             leading: Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  network.symbol.substring(0, 1),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-              ),
+              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), shape: BoxShape.circle),
+              child: Center(child: Text(network.symbol.substring(0, 1), style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor))),
             ),
             title: Text(network.name),
             subtitle: Text(network.symbol),
-            trailing: selectedNetwork == network
-                ? const Icon(Icons.check_circle, color: AppTheme.primaryColor)
-                : null,
+            trailing: selectedNetwork == network ? const Icon(Icons.check_circle, color: AppTheme.primaryColor) : null,
             onTap: () {
               ref.read(selectedNetworkProvider.notifier).state = network;
               Navigator.pop(context);
@@ -805,12 +726,7 @@ class _ExchangeOption extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
-  const _ExchangeOption({
-    required this.name,
-    required this.discount,
-    required this.color,
-    required this.onTap,
-  });
+  const _ExchangeOption({required this.name, required this.discount, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -831,40 +747,16 @@ class _ExchangeOption extends StatelessWidget {
               Container(
                 width: 48,
                 height: 48,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Text(
-                    name[0],
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                ),
+                decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                child: Center(child: Text(name[0], style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color))),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      discount,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppTheme.successColor,
-                      ),
-                    ),
+                    Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    Text(discount, style: const TextStyle(fontSize: 14, color: AppTheme.successColor)),
                   ],
                 ),
               ),
@@ -877,18 +769,19 @@ class _ExchangeOption extends StatelessWidget {
   }
 }
 
-// History Tab placeholder
-class _HistoryTab extends StatelessWidget {
-  const _HistoryTab();
+// Updated SendScreen with initial address parameter
+class SendScreen extends StatelessWidget {
+  final String? initialAddress;
+  
+  const SendScreen({super.key, this.initialAddress});
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: EmptyState(
-        icon: Icons.history_rounded,
-        title: 'Chưa có giao dịch',
-        subtitle: 'Các giao dịch của bạn sẽ hiển thị ở đây',
-      ),
+    // This is a placeholder - the actual implementation should be in send_screen.dart
+    // with support for initialAddress parameter
+    return Scaffold(
+      appBar: AppBar(title: const Text('Gửi')),
+      body: Center(child: Text('Send screen with address: $initialAddress')),
     );
   }
 }

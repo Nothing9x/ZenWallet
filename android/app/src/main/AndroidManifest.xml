@@ -9,6 +9,9 @@
     <!-- Biometrics -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
 
+    <!-- Notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:label="web3_wallet"
         android:name="${applicationName}"

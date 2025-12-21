@@ -10,11 +10,12 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Enable desugaring for flutter_local_notifications
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // SỬA TẠI ĐÂY
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -25,6 +26,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Required for mobile_scanner
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -36,4 +40,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Required for desugaring
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
