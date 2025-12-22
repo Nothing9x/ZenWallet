@@ -1,5 +1,5 @@
-name: web3_wallet
-description: A secure and user-friendly Web3 wallet for managing crypto assets.
+name: zenwallet
+description: A secure and user-friendly Zen wallet for managing crypto assets.
 publish_to: 'none'
 version: 1.0.0+1
 

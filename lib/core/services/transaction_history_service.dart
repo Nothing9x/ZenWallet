@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/transaction.dart';
@@ -9,27 +10,23 @@ class TransactionHistoryService {
   factory TransactionHistoryService() => _instance;
   TransactionHistoryService._internal();
 
-  // API Keys - In production, use environment variables
-  // Free tier: 5 calls/sec, 100,000 calls/day
-  static const Map<String, String> _apiKeys = {
-    'ethereum': 'YourEtherscanApiKey', // Get from etherscan.io
-    'bsc': 'YourBscscanApiKey', // Get from bscscan.com
-    'polygon': 'YourPolygonscanApiKey', // Get from polygonscan.com
-    'arbitrum': 'YourArbiscanApiKey', // Get from arbiscan.io
-    'optimism': 'YourOptimisticEtherscanApiKey',
-    'avalanche': 'YourSnowtraceApiKey',
+  // API Key - Get from etherscan.io
+  static const String _apiKey = 'CA9JQE3SNMD7B3Y73173GQT6Y9RJ87XVQE';
+  
+  // Etherscan API V2 base URL
+  static const String _baseUrlV2 = 'https://api.etherscan.io/v2/api';
+  
+  // Chain IDs for Etherscan V2 API
+  static const Map<String, int> _chainIds = {
+    'ethereum': 1,
+    'bsc': 56,
+    'polygon': 137,
+    'arbitrum': 42161,
+    'optimism': 10,
+    'avalanche': 43114,
   };
 
-  static const Map<String, String> _apiUrls = {
-    'ethereum': 'https://api.etherscan.io/api',
-    'bsc': 'https://api.bscscan.com/api',
-    'polygon': 'https://api.polygonscan.com/api',
-    'arbitrum': 'https://api.arbiscan.io/api',
-    'optimism': 'https://api-optimistic.etherscan.io/api',
-    'avalanche': 'https://api.snowtrace.io/api',
-  };
-
-  /// Get transaction history for an address
+  /// Get transaction history for an address (V2 API)
   Future<List<WalletTransaction>> getTransactions({
     required String address,
     required Network network,
@@ -38,50 +35,64 @@ class TransactionHistoryService {
     String sort = 'desc',
   }) async {
     try {
-      final apiUrl = _apiUrls[network.id];
-      final apiKey = _apiKeys[network.id];
-      
-      if (apiUrl == null) {
+      final chainId = _chainIds[network.id];
+      if (chainId == null) {
+        debugPrint('❌ Network not supported: ${network.id}');
         throw Exception('Network not supported: ${network.id}');
       }
 
-      // Build URL for normal transactions
       final url = Uri.parse(
-        '$apiUrl?module=account&action=txlist'
+        '$_baseUrlV2'
+        '?chainid=$chainId'
+        '&module=account'
+        '&action=txlist'
         '&address=$address'
         '&startblock=0'
         '&endblock=99999999'
         '&page=$page'
         '&offset=$offset'
         '&sort=$sort'
-        '${apiKey != null ? '&apikey=$apiKey' : ''}'
+        '&apikey=$_apiKey'
       );
+
+      debugPrint('🔍 Fetching transactions: $url');
 
       final response = await http.get(url).timeout(const Duration(seconds: 30));
       
+      debugPrint('📥 Response status: ${response.statusCode}');
+      debugPrint('📥 Response body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
+
       if (response.statusCode != 200) {
         throw Exception('API request failed: ${response.statusCode}');
       }
 
       final data = json.decode(response.body);
       
+      debugPrint('📊 API status: ${data['status']}, message: ${data['message']}');
+
       if (data['status'] != '1') {
-        // No transactions found or error
-        if (data['message'] == 'No transactions found') {
+        final result = data['result']?.toString() ?? '';
+        if (data['message'] == 'No transactions found' || 
+            result.contains('No transactions found') ||
+            data['message'] == 'NOTOK' && result.contains('No transactions')) {
+          debugPrint('ℹ️ No transactions found');
           return [];
         }
-        throw Exception(data['message'] ?? 'Unknown error');
+        throw Exception(data['message'] ?? data['result'] ?? 'Unknown error');
       }
 
-      final List<dynamic> txList = data['result'];
+      final List<dynamic> txList = data['result'] ?? [];
+      debugPrint('✅ Found ${txList.length} transactions');
       
       return txList.map((tx) => _parseTransaction(tx, address, network)).toList();
-    } catch (e) {
-      throw Exception('Failed to fetch transactions: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ getTransactions error: $e');
+      debugPrint('📍 Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
-  /// Get ERC20 token transfers
+  /// Get ERC20 token transfers (V2 API)
   Future<List<WalletTransaction>> getTokenTransfers({
     required String address,
     required Network network,
@@ -90,127 +101,120 @@ class TransactionHistoryService {
     int offset = 20,
   }) async {
     try {
-      final apiUrl = _apiUrls[network.id];
-      final apiKey = _apiKeys[network.id];
-      
-      if (apiUrl == null) {
+      final chainId = _chainIds[network.id];
+      if (chainId == null) {
+        debugPrint('❌ Network not supported: ${network.id}');
         throw Exception('Network not supported: ${network.id}');
       }
 
-      var urlString = '$apiUrl?module=account&action=tokentx'
+      var urlString = '$_baseUrlV2'
+          '?chainid=$chainId'
+          '&module=account'
+          '&action=tokentx'
           '&address=$address'
           '&page=$page'
           '&offset=$offset'
           '&sort=desc'
-          '${apiKey != null ? '&apikey=$apiKey' : ''}';
+          '&apikey=$_apiKey';
       
       if (contractAddress != null) {
         urlString += '&contractaddress=$contractAddress';
       }
 
       final url = Uri.parse(urlString);
+      debugPrint('🔍 Fetching token transfers: $url');
+
       final response = await http.get(url).timeout(const Duration(seconds: 30));
       
+      debugPrint('📥 Token response status: ${response.statusCode}');
+
       if (response.statusCode != 200) {
         throw Exception('API request failed: ${response.statusCode}');
       }
 
       final data = json.decode(response.body);
       
+      debugPrint('📊 Token API status: ${data['status']}, message: ${data['message']}');
+
       if (data['status'] != '1') {
-        if (data['message'] == 'No transactions found') {
+        final result = data['result']?.toString() ?? '';
+        if (data['message'] == 'No transactions found' ||
+            result.contains('No transactions found') ||
+            data['message'] == 'NOTOK' && result.contains('No transactions')) {
+          debugPrint('ℹ️ No token transfers found');
           return [];
         }
-        throw Exception(data['message'] ?? 'Unknown error');
+        throw Exception(data['message'] ?? data['result'] ?? 'Unknown error');
       }
 
-      final List<dynamic> txList = data['result'];
+      final List<dynamic> txList = data['result'] ?? [];
+      debugPrint('✅ Found ${txList.length} token transfers');
       
       return txList.map((tx) => _parseTokenTransfer(tx, address, network)).toList();
-    } catch (e) {
-      throw Exception('Failed to fetch token transfers: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ getTokenTransfers error: $e');
+      debugPrint('📍 Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
-  /// Get internal transactions (contract calls)
-  Future<List<WalletTransaction>> getInternalTransactions({
-    required String address,
-    required Network network,
-    int page = 1,
-    int offset = 20,
-  }) async {
-    try {
-      final apiUrl = _apiUrls[network.id];
-      final apiKey = _apiKeys[network.id];
-      
-      if (apiUrl == null) {
-        throw Exception('Network not supported: ${network.id}');
-      }
-
-      final url = Uri.parse(
-        '$apiUrl?module=account&action=txlistinternal'
-        '&address=$address'
-        '&startblock=0'
-        '&endblock=99999999'
-        '&page=$page'
-        '&offset=$offset'
-        '&sort=desc'
-        '${apiKey != null ? '&apikey=$apiKey' : ''}'
-      );
-
-      final response = await http.get(url).timeout(const Duration(seconds: 30));
-      
-      if (response.statusCode != 200) {
-        throw Exception('API request failed: ${response.statusCode}');
-      }
-
-      final data = json.decode(response.body);
-      
-      if (data['status'] != '1') {
-        if (data['message'] == 'No transactions found') {
-          return [];
-        }
-        throw Exception(data['message'] ?? 'Unknown error');
-      }
-
-      final List<dynamic> txList = data['result'];
-      
-      return txList.map((tx) => _parseInternalTransaction(tx, address, network)).toList();
-    } catch (e) {
-      throw Exception('Failed to fetch internal transactions: $e');
-    }
-  }
-
-  /// Get all transactions (normal + token + internal) merged and sorted
+  /// Get all transactions (normal + token) merged and sorted
   Future<List<WalletTransaction>> getAllTransactions({
     required String address,
     required Network network,
     int limit = 50,
   }) async {
+    debugPrint('🚀 getAllTransactions started');
+    debugPrint('📍 Address: $address');
+    debugPrint('📍 Network: ${network.id} (${network.name})');
+    
+    final List<WalletTransaction> allTx = [];
+    final List<String> errors = [];
+
+    // Fetch normal transactions
     try {
-      // Fetch all types in parallel
-      final results = await Future.wait([
-        getTransactions(address: address, network: network, offset: limit),
-        getTokenTransfers(address: address, network: network, offset: limit),
-      ]);
-
-      // Merge and sort by timestamp
-      final allTx = <WalletTransaction>[
-        ...results[0],
-        ...results[1],
-      ];
-
-      // Remove duplicates by hash
-      final seen = <String>{};
-      final unique = allTx.where((tx) => seen.add(tx.hash)).toList();
-
-      // Sort by timestamp descending
-      unique.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      return unique.take(limit).toList();
+      final normalTx = await getTransactions(
+        address: address, 
+        network: network, 
+        offset: limit,
+      );
+      allTx.addAll(normalTx);
+      debugPrint('✅ Normal transactions: ${normalTx.length}');
     } catch (e) {
-      throw Exception('Failed to fetch all transactions: $e');
+      debugPrint('⚠️ Normal transactions failed: $e');
+      errors.add('Normal: $e');
     }
+
+    // Fetch token transfers
+    try {
+      final tokenTx = await getTokenTransfers(
+        address: address, 
+        network: network, 
+        offset: limit,
+      );
+      allTx.addAll(tokenTx);
+      debugPrint('✅ Token transfers: ${tokenTx.length}');
+    } catch (e) {
+      debugPrint('⚠️ Token transfers failed: $e');
+      errors.add('Token: $e');
+    }
+
+    // If both failed, throw error
+    if (allTx.isEmpty && errors.isNotEmpty) {
+      debugPrint('❌ All requests failed: $errors');
+      throw Exception('Failed to fetch transactions: ${errors.join(', ')}');
+    }
+
+    // Remove duplicates by hash
+    final seen = <String>{};
+    final unique = allTx.where((tx) => seen.add(tx.hash)).toList();
+
+    // Sort by timestamp descending
+    unique.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    debugPrint('✅ Total unique transactions: ${unique.length}');
+
+    return unique.take(limit).toList();
   }
 
   WalletTransaction _parseTransaction(
@@ -267,36 +271,6 @@ class TransactionHistoryService {
       networkId: network.id,
       tokenSymbol: tx['tokenSymbol'] ?? 'TOKEN',
       tokenDecimals: int.tryParse(tx['tokenDecimal'] ?? '18') ?? 18,
-      blockNumber: int.tryParse(tx['blockNumber'] ?? '0'),
-    );
-  }
-
-  WalletTransaction _parseInternalTransaction(
-    Map<String, dynamic> tx,
-    String walletAddress,
-    Network network,
-  ) {
-    final from = tx['from']?.toString().toLowerCase() ?? '';
-    final to = tx['to']?.toString().toLowerCase() ?? '';
-    final isReceive = to == walletAddress.toLowerCase();
-    
-    return WalletTransaction(
-      hash: tx['hash'] ?? '',
-      from: tx['from'] ?? '',
-      to: tx['to'] ?? '',
-      value: BigInt.tryParse(tx['value'] ?? '0') ?? BigInt.zero,
-      gasUsed: BigInt.zero, // Internal tx don't have separate gas
-      gasPrice: BigInt.zero,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(
-        (int.tryParse(tx['timeStamp'] ?? '0') ?? 0) * 1000,
-      ),
-      status: tx['isError'] == '0'
-          ? TransactionStatus.confirmed
-          : TransactionStatus.failed,
-      type: isReceive ? TransactionType.receive : TransactionType.contractInteraction,
-      networkId: network.id,
-      tokenSymbol: network.symbol,
-      tokenDecimals: network.decimals,
       blockNumber: int.tryParse(tx['blockNumber'] ?? '0'),
     );
   }

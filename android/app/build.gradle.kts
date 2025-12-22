@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.web3_wallet"
+    namespace = "com.toinx.zenwallet"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.web3_wallet"
+        applicationId = "com.toinx.zenwallet"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

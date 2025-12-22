@@ -1,4 +1,4 @@
-package com.example.web3_wallet
+package com.toinx.zenwallet
 
 import io.flutter.embedding.android.FlutterActivity
 
