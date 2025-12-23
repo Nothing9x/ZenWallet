@@ -1,9 +1,11 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/constants/app_theme.dart';
-import '../../shared/widgets/common_widgets.dart';
 
 class QRScannerScreen extends StatefulWidget {
   final Function(String)? onScanned;
@@ -135,42 +137,139 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     // Vibrate feedback
     HapticFeedback.mediumImpact();
     
+    // Log raw code
+    debugPrint('🔍 [QR Scanner] Raw code scanned: "$code"');
+    debugPrint('🔍 [QR Scanner] Code length: ${code.length}');
+    debugPrint('🔍 [QR Scanner] Code bytes: ${code.codeUnits}');
+    
     // Parse the code
-    String address = code;
+    String? address;
     String? amount;
     String? chainId;
     
-    // Handle ethereum: URI format
-    // ethereum:0x...?value=1000000000000000000&chainId=1
-    if (code.startsWith('ethereum:')) {
-      final uri = Uri.parse(code.replaceFirst('ethereum:', 'http://'));
-      address = uri.path;
-      amount = uri.queryParameters['value'];
-      chainId = uri.queryParameters['chainId'];
+    // Clean the code - remove all whitespace and newlines
+    final cleanedCode = code
+        .replaceAll(RegExp(r'\s+'), '') // Remove all whitespace
+        .replaceAll(RegExp(r'\n'), '')  // Remove newlines
+        .replaceAll(RegExp(r'\r'), '')  // Remove carriage returns
+        .trim();
+    debugPrint('🔍 [QR Scanner] Cleaned code: "$cleanedCode"');
+    debugPrint('🔍 [QR Scanner] Cleaned length: ${cleanedCode.length}');
+    
+    // Try to extract address from various formats
+    
+    // 1. Handle URI schemes (ethereum:, binance:, zeroin:, etc.)
+    // Format: scheme:0x...?params
+    debugPrint('🔍 [QR Scanner] Step 1: Checking URI format...');
+    final uriPattern = RegExp(r'^([a-z]+):(0x[a-fA-F0-9]{40})', caseSensitive: false);
+    final uriMatch = uriPattern.firstMatch(cleanedCode);
+    if (uriMatch != null) {
+      address = uriMatch.group(2);
+      debugPrint('✅ [QR Scanner] Found URI format. Scheme: ${uriMatch.group(1)}, Address: $address');
+      // Try to parse as URI to get query parameters
+      try {
+        final uri = Uri.parse(cleanedCode.replaceFirst(RegExp(r'^[a-z]+:'), 'http://'));
+        amount = uri.queryParameters['value'];
+        chainId = uri.queryParameters['chainId'];
+        debugPrint('✅ [QR Scanner] URI params - amount: $amount, chainId: $chainId');
+      } catch (e) {
+        debugPrint('⚠️ [QR Scanner] URI parsing failed: $e');
+        // If URI parsing fails, we still have the address
+      }
+    } else {
+      debugPrint('❌ [QR Scanner] Not a URI format');
+    }
+    
+    // 2. Handle JSON format (some wallets encode address in JSON)
+    // Format: {"address":"0x...", ...} or {"to":"0x...", ...}
+    if (address == null) {
+      debugPrint('🔍 [QR Scanner] Step 2: Checking JSON format...');
+      try {
+        final json = jsonDecode(cleanedCode) as Map<String, dynamic>?;
+        if (json != null) {
+          debugPrint('✅ [QR Scanner] Found JSON format. Keys: ${json.keys.toList()}');
+          address = json['address'] as String? ?? 
+                   json['to'] as String? ?? 
+                   json['wallet'] as String? ??
+                   json['walletAddress'] as String?;
+          amount = json['value']?.toString() ?? json['amount']?.toString();
+          chainId = json['chainId']?.toString();
+          debugPrint('✅ [QR Scanner] JSON extracted - address: $address, amount: $amount, chainId: $chainId');
+        }
+      } catch (e) {
+        debugPrint('❌ [QR Scanner] Not JSON format: $e');
+        // Not JSON format, continue
+      }
+    }
+    
+    // 3. Extract Ethereum address pattern from text
+    // Look for 0x followed by 40 hex characters
+    if (address == null) {
+      debugPrint('🔍 [QR Scanner] Step 3: Searching for address pattern in text...');
+      final addressPattern = RegExp(r'0x[a-fA-F0-9]{40}', caseSensitive: false);
+      final match = addressPattern.firstMatch(cleanedCode);
+      if (match != null) {
+        address = match.group(0);
+        debugPrint('✅ [QR Scanner] Found address pattern: $address');
+      } else {
+        debugPrint('❌ [QR Scanner] No address pattern found');
+        // Try to find any 0x pattern
+        final any0xPattern = RegExp(r'0x[a-fA-F0-9]+', caseSensitive: false);
+        final anyMatch = any0xPattern.firstMatch(cleanedCode);
+        if (anyMatch != null) {
+          debugPrint('⚠️ [QR Scanner] Found 0x pattern but wrong length: ${anyMatch.group(0)} (length: ${anyMatch.group(0)?.length})');
+        }
+      }
     }
     
     // Validate address
-    if (!_isValidAddress(address)) {
-      _showErrorDialog('Mã QR không chứa địa chỉ ví hợp lệ');
+    debugPrint('🔍 [QR Scanner] Step 4: Validating address...');
+    if (address == null) {
+      debugPrint('❌ [QR Scanner] Address is null');
+      _showErrorDialog('Mã QR không chứa địa chỉ ví hợp lệ\n\nDebug info:\nRaw: "$code"\nCleaned: "$cleanedCode"\nLength: ${cleanedCode.length}');
       setState(() => _isScanned = false);
       return;
     }
+    
+    debugPrint('🔍 [QR Scanner] Address to validate: "$address"');
+    debugPrint('🔍 [QR Scanner] Address length: ${address.length}');
+    final isValid = _isValidAddress(address);
+    debugPrint('🔍 [QR Scanner] Validation result: $isValid');
+    
+    if (!isValid) {
+      debugPrint('❌ [QR Scanner] Address validation failed');
+      _showErrorDialog('Địa chỉ không hợp lệ\n\nDebug info:\nAddress: "$address"\nLength: ${address.length}\nStarts with 0x: ${address.startsWith("0x")}');
+      setState(() => _isScanned = false);
+      return;
+    }
+    
+    debugPrint('✅ [QR Scanner] Address validated successfully: $address');
     
     // Show confirmation
     _showConfirmationDialog(address, amount: amount, chainId: chainId);
   }
 
   bool _isValidAddress(String address) {
-    // Basic Ethereum address validation
-    if (!address.startsWith('0x')) return false;
-    if (address.length != 42) return false;
+    debugPrint('🔍 [QR Scanner] Validating address: "$address"');
     
-    // Check if it's valid hex
-    try {
-      final hex = address.substring(2);
-      int.parse(hex, radix: 16);
+    // Basic Ethereum address validation
+    if (!address.startsWith('0x')) {
+      debugPrint('❌ [QR Scanner] Address does not start with 0x');
+      return false;
+    }
+    
+    if (address.length != 42) {
+      debugPrint('❌ [QR Scanner] Address length is ${address.length}, expected 42');
+      return false;
+    }
+    
+    // Check if it's valid hex using regex (don't parse as int because it's too large)
+    final hexPattern = RegExp(r'^0x[a-fA-F0-9]{40}$');
+    if (hexPattern.hasMatch(address)) {
+      debugPrint('✅ [QR Scanner] Address is valid hex format');
       return true;
-    } catch (_) {
+    } else {
+      debugPrint('❌ [QR Scanner] Address does not match hex pattern');
       return false;
     }
   }
@@ -240,7 +339,12 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Lỗi'),
-        content: Text(message),
+        content: SingleChildScrollView(
+          child: Text(
+            message,
+            style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+          ),
+        ),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
