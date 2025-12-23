@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:zenwallet/features/home/main_screen.dart';
 
 import '../../core/constants/app_theme.dart';
 import '../../core/models/wallet.dart';
@@ -9,9 +10,8 @@ import '../../core/models/token.dart';
 import '../../core/providers/wallet_provider.dart';
 import '../../core/services/wallet_service.dart';
 import '../../core/services/blockchain_service.dart';
-import '../home/home_screen.dart';
-import '../onboarding/onboarding_screen.dart';
 import '../onboarding/import_wallet_screen.dart';
+import 'package:zenwallet/main.dart';
 
 // Provider for all wallets
 final allWalletsProvider = FutureProvider<List<WalletInfo>>((ref) async {
@@ -32,49 +32,84 @@ final walletBalanceProvider = FutureProvider.family<double, String>((ref, addres
   }
 });
 
-class WalletListScreen extends ConsumerStatefulWidget {
+/// Standalone WalletListScreen (for initial launch / onboarding)
+class WalletListScreen extends ConsumerWidget {
   const WalletListScreen({super.key});
 
   @override
-  ConsumerState<WalletListScreen> createState() => _WalletListScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return const Scaffold(
+      body: WalletListContent(),
+    );
+  }
 }
 
-class _WalletListScreenState extends ConsumerState<WalletListScreen> {
+/// Reusable WalletListContent (used in both standalone and tab)
+class WalletListContent extends ConsumerStatefulWidget {
+  const WalletListContent({super.key});
+
+  @override
+  ConsumerState<WalletListContent> createState() => _WalletListContentState();
+}
+
+class _WalletListContentState extends ConsumerState<WalletListContent> {
   final WalletService _walletService = WalletService();
 
   @override
   Widget build(BuildContext context) {
     final walletsAsync = ref.watch(allWalletsProvider);
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text('Ví của tôi'),
-        centerTitle: true,
-      ),
-      body: walletsAsync.when(
-        data: (wallets) => _buildWalletList(wallets),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: AppTheme.errorColor),
-              const SizedBox(height: 16),
-              Text('Lỗi: $e'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(allWalletsProvider),
-                child: const Text('Thử lại'),
-              ),
-            ],
+    return SafeArea(
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const Text(
+                  'Ví của tôi',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => _showAddWalletOptions(context),
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddWalletOptions(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Thêm ví'),
+
+          // Wallet list
+          Expanded(
+            child: walletsAsync.when(
+              data: (wallets) => _buildWalletList(wallets),
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48, color: AppTheme.errorColor),
+                    const SizedBox(height: 16),
+                    Text('Lỗi: $e'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => ref.invalidate(allWalletsProvider),
+                      child: const Text('Thử lại'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -92,7 +127,7 @@ class _WalletListScreenState extends ConsumerState<WalletListScreen> {
         }
       },
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: wallets.length,
         itemBuilder: (context, index) {
           final wallet = wallets[index];
@@ -228,7 +263,7 @@ class _WalletListScreenState extends ConsumerState<WalletListScreen> {
       await ref.read(currentWalletProvider.notifier).createWalletQuick();
       
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context); // Close loading
         ref.invalidate(allWalletsProvider);
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -255,6 +290,7 @@ class _WalletListScreenState extends ConsumerState<WalletListScreen> {
   }
 
   void _importWallet() {
+    // Use push instead of pushAndRemoveUntil to allow back navigation
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ImportWalletScreen()),
@@ -266,10 +302,10 @@ class _WalletListScreenState extends ConsumerState<WalletListScreen> {
     ref.invalidate(currentWalletProvider);
     
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
+      // Navigate to MainScreen with Wallet tab selected (index 1)
+      Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (route) => false,
+        MaterialPageRoute(builder: (_) => const MainScreen(initialTab: 1)),
       );
     }
   }

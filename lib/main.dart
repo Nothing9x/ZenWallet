@@ -4,9 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/constants/app_theme.dart';
 import 'core/services/wallet_service.dart';
-import 'features/wallet_list/wallet_list_screen.dart';
+import 'features/home/main_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
-import 'features/home/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,10 +99,12 @@ class _AppEntryPointState extends State<AppEntryPoint> {
       );
     }
 
+    // No wallet exists -> Show onboarding
     if (!_hasWallet) {
       return const OnboardingScreen();
     }
 
-    return const WalletListScreen();
+    // Has wallets -> Show MainScreen (with bottom tabs)
+    return const MainScreen();
   }
 }
