@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:local_auth/local_auth.dart';
 
 import '../../core/providers/wallet_provider.dart';
+import '../../core/services/secure_storage_service.dart';
 import '../home/main_screen.dart';
 import 'import_wallet_screen.dart';
 
@@ -18,7 +18,7 @@ class CreatePasswordScreen extends ConsumerStatefulWidget {
 }
 
 class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
-  final _storage = const FlutterSecureStorage();
+  final _secureStorage = SecureStorageService();
   final _localAuth = LocalAuthentication();
 
   String _pinInput = '';
@@ -390,11 +390,26 @@ class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
 
     try {
       // Save PIN in secure storage
-      await _storage.write(key: 'wallet_pin', value: _pinInput);
+      debugPrint('💾 Saving PIN to secure storage (length=${_pinInput.length})');
+      await _secureStorage.savePIN(_pinInput);
+      
+      // Verify PIN was saved
+      final verify = await _secureStorage.getPIN();
+      debugPrint('✅ PIN saved and verified: ${verify != null && verify == _pinInput}');
+      
+      if (verify == null || verify != _pinInput) {
+        debugPrint('❌ PIN verification failed!');
+        setState(() {
+          _error = 'Lỗi lưu mã PIN, vui lòng thử lại';
+          _isLoading = false;
+        });
+        return;
+      }
 
       // Save biometric preference
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('biometric_enabled', _useBiometrics);
+      debugPrint('💾 Biometric preference saved: $_useBiometrics');
 
       if (widget.isImport) {
         if (mounted) {
@@ -417,6 +432,7 @@ class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
         }
       }
     } catch (e) {
+      debugPrint('❌ Error in _onSubmit: $e');
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);

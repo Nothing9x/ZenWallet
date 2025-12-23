@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/constants/app_theme.dart';
 import 'core/services/wallet_service.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'core/services/secure_storage_service.dart';
 import 'features/auth/lock_screen.dart';
 import 'features/home/main_screen.dart';
 import 'features/wallet_list/wallet_list_screen.dart';
@@ -75,7 +75,7 @@ class AppEntryPoint extends StatefulWidget {
 
 class _AppEntryPointState extends State<AppEntryPoint> with WidgetsBindingObserver {
   final WalletService _walletService = WalletService();
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = SecureStorageService();
   bool _isLoading = true;
   bool _hasWallet = false;
   DateTime? _pausedAt;
@@ -112,11 +112,25 @@ class _AppEntryPointState extends State<AppEntryPoint> with WidgetsBindingObserv
 
   Future<void> _handleResume() async {
     try {
-      // If no PIN saved, no lock
-      final pin = await _secureStorage.read(key: 'wallet_pin');
-      debugPrint('🔒 handleResume: pin present=${pin != null} _lockShowing=$_lockShowing');
-      if (pin == null) return;
+      debugPrint('🔒 handleResume: called, _lockShowing=$_lockShowing');
+      
+      // If already showing lock, skip
+      if (_lockShowing) {
+        debugPrint('🔒 handleResume: lock already showing, abort');
+        return;
+      }
 
+      // Check if PIN exists
+      debugPrint('🔒 handleResume: checking PIN...');
+      final pin = await _secureStorage.getPIN();
+      debugPrint('🔒 handleResume: pin found=${pin != null}, pin length=${pin?.length ?? 0}');
+      
+      if (pin == null || pin.isEmpty) {
+        debugPrint('🔒 handleResume: no PIN set, skipping lock');
+        return;
+      }
+
+      // Check if enough time has passed
       final paused = _pausedAt;
       if (paused == null) {
         debugPrint('🔒 handleResume: pausedAt is null, skipping lock');
@@ -124,43 +138,33 @@ class _AppEntryPointState extends State<AppEntryPoint> with WidgetsBindingObserv
       }
 
       final diff = DateTime.now().difference(paused);
-      // Debug info to help diagnose lifecycle timing issues
       debugPrint('🔒 handleResume: pausedAt=$paused now=${DateTime.now()} diff=${diff.inSeconds}s');
+      
       if (diff.inSeconds < 60) {
         debugPrint('🔒 handleResume: diff < 60s, skipping lock');
         return; // less than 1 minute -> no lock
       }
 
-      // Show lock screen if not already shown
-      if (_lockShowing) {
-        debugPrint('🔒 handleResume: lock already showing, abort');
+      // Show lock screen
+      if (!mounted) {
+        debugPrint('🔒 handleResume: widget not mounted, abort');
         return;
       }
-      _lockShowing = true;
 
-      // push LockScreen on root navigator and wait for success or failure
-      if (!mounted) return;
-      debugPrint('🔒 handleResume: pushing LockScreen');
-      await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+      _lockShowing = true;
+      debugPrint('🔒 handleResume: pushing LockScreen now');
+      
+      final navigator = Navigator.of(context, rootNavigator: true);
+      final result = await navigator.push<bool>(MaterialPageRoute(
         builder: (_) => const LockScreen(),
         settings: const RouteSettings(name: 'LockScreen'),
       ));
-      debugPrint('🔒 handleResume: LockScreen returned');
-
-      // After successful unlock, ensure MainScreen is shown when a wallet exists
-      if (_hasWallet) {
-        debugPrint('🔒 handleResume: navigating to MainScreen (wallet tab)');
-        await Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => const MainScreen(initialTab: 0),
-            settings: const RouteSettings(name: 'MainScreen'),
-          ),
-          (route) => false,
-        );
-      }
+      
+      debugPrint('🔒 handleResume: LockScreen returned with result=$result');
 
       _lockShowing = false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ handleResume error: $e');
       _lockShowing = false;
     }
   }
@@ -189,30 +193,42 @@ class _AppEntryPointState extends State<AppEntryPoint> with WidgetsBindingObserv
       // Only show if wallet exists and not already showing lock
       if (!_hasWallet || _lockShowing) return;
 
-      final pin = await _secureStorage.read(key: 'wallet_pin');
-      debugPrint('🔒 startup: pin present=${pin != null}');
-      if (pin == null) return;
+      // Add delay to ensure secure storage is ready
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final hasPin = await _secureStorage.hasPIN();
+      debugPrint('🔒 startup: pin present=$hasPin, _hasWallet=$_hasWallet');
+      if (!hasPin) {
+        debugPrint('🔒 startup: no PIN set, skipping lock screen');
+        return;
+      }
 
       _lockShowing = true;
-      await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+      debugPrint('🔒 startup: showing LockScreen');
+      final unlocked = await Navigator.of(context, rootNavigator: true).push<bool?>(MaterialPageRoute(
         builder: (_) => const LockScreen(),
         settings: const RouteSettings(name: 'LockScreen'),
       ));
 
+      debugPrint('🔒 startup: LockScreen returned with result=$unlocked');
+
       // After startup unlock, navigate to MainScreen so user always lands on main tab
-      if (_hasWallet) {
+      if (_hasWallet && (unlocked ?? false)) {
         debugPrint('🔒 startup: navigating to MainScreen (wallet tab) after unlock');
-        await Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => const MainScreen(initialTab: 0),
-            settings: const RouteSettings(name: 'MainScreen'),
-          ),
-          (route) => false,
-        );
+        if (mounted) {
+          await Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const MainScreen(initialTab: 0),
+              settings: const RouteSettings(name: 'MainScreen'),
+            ),
+            (route) => false,
+          );
+        }
       }
 
       _lockShowing = false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('🔒 startup error: $e');
       _lockShowing = false;
     }
   }
