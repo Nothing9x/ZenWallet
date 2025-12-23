@@ -1,114 +1,109 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
 import 'core/constants/app_theme.dart';
-import 'core/services/secure_storage_service.dart';
+import 'core/services/wallet_service.dart';
+import 'features/wallet_list/wallet_list_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/home/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Hive for local storage
-  await Hive.initFlutter();
-  
-  // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
-  // Set system UI overlay style
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  
-  runApp(const ProviderScope(child: Web3WalletApp()));
+
+  runApp(const ProviderScope(child: ZenWalletApp()));
 }
 
-class Web3WalletApp extends ConsumerWidget {
-  const Web3WalletApp({super.key});
+class ZenWalletApp extends StatelessWidget {
+  const ZenWalletApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VWallet',
+      title: 'ZenWallet',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const AppRouter(),
+      home: const AppEntryPoint(),
     );
   }
 }
 
-class AppRouter extends ConsumerWidget {
-  const AppRouter({super.key});
+class AppEntryPoint extends StatefulWidget {
+  const AppEntryPoint({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hasWallet = ref.watch(hasWalletProvider);
-    
-    return hasWallet.when(
-      data: (hasWallet) {
-        if (hasWallet) {
-          return const HomeScreen();
-        }
-        return const OnboardingScreen();
-      },
-      loading: () => const SplashScreen(),
-      error: (_, __) => const OnboardingScreen(),
-    );
-  }
+  State<AppEntryPoint> createState() => _AppEntryPointState();
 }
 
-class SplashScreen extends StatelessWidget {
-  const SplashScreen({super.key});
+class _AppEntryPointState extends State<AppEntryPoint> {
+  final WalletService _walletService = WalletService();
+  bool _isLoading = true;
+  bool _hasWallet = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkWalletStatus();
+  }
+
+  Future<void> _checkWalletStatus() async {
+    try {
+      final wallets = await _walletService.getAllWallets();
+      setState(() {
+        _hasWallet = wallets.isNotEmpty;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _hasWallet = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.primaryColor,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+    if (_isLoading) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: AppTheme.primaryGradient,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(Icons.account_balance_wallet_rounded, size: 40, color: Colors.white),
               ),
-              child: const Icon(
-                Icons.account_balance_wallet_rounded,
-                size: 50,
-                color: AppTheme.primaryColor,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'VWallet',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (!_hasWallet) {
+      return const OnboardingScreen();
+    }
+
+    return const WalletListScreen();
   }
 }
-
-// Provider to check if wallet exists
-final hasWalletProvider = FutureProvider<bool>((ref) async {
-  final secureStorage = SecureStorageService();
-  return await secureStorage.hasWallet();
-});

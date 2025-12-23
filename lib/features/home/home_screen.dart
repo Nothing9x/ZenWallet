@@ -15,6 +15,7 @@ import '../swap/swap_screen.dart';
 import '../history/transaction_history_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/backup_wallet_screen.dart';
+import '../wallet_list/wallet_list_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -54,6 +55,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
+  void _onTabTapped(int index) {
+    // Index 2 = Wallets tab -> Navigate to WalletListScreen
+    if (index == 2) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const WalletListScreen()),
+        (route) => false,
+      );
+      return;
+    }
+    
+    setState(() => _currentIndex = index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -62,6 +77,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: const [
           _WalletTab(),
           TransactionHistoryScreen(),
+          SizedBox(), // Placeholder for Wallets tab (navigates away)
           SettingsScreen(),
         ],
       ),
@@ -76,17 +92,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: _onTabTapped,
+          type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              activeIcon: Icon(Icons.account_balance_wallet_rounded),
-              label: 'Ví',
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home_rounded),
+              label: 'Trang chủ',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.history_outlined),
               activeIcon: Icon(Icons.history_rounded),
               label: 'Lịch sử',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              activeIcon: Icon(Icons.account_balance_wallet_rounded),
+              label: 'Ví',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),
@@ -122,34 +144,27 @@ class _WalletTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Network selector & Address
+                    // Header: Wallet selector & Network
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        // Wallet selector - TAP TO GO TO WALLET LIST
+                        walletAsync.when(
+                          data: (wallet) => wallet != null
+                              ? _WalletSelector(
+                                  walletName: wallet.name,
+                                  address: wallet.shortAddress,
+                                  onTap: () => _navigateToWalletList(context),
+                                )
+                              : const SizedBox.shrink(),
+                          loading: () => const SizedBox.shrink(),
+                          error: (_, __) => const SizedBox.shrink(),
+                        ),
+                        
+                        // Network selector
                         _NetworkSelector(
                           network: selectedNetwork,
                           onTap: () => _showNetworkSelector(context, ref),
-                        ),
-                        Row(
-                          children: [
-                            // Backup reminder chip
-                            BackupReminderChip(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const BackupWalletScreen(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            walletAsync.when(
-                              data: (wallet) => wallet != null
-                                  ? _AddressChip(address: wallet.shortAddress)
-                                  : const SizedBox.shrink(),
-                              loading: () => const SizedBox.shrink(),
-                              error: (_, __) => const SizedBox.shrink(),
-                            ),
-                          ],
                         ),
                       ],
                     ),
@@ -300,6 +315,14 @@ class _WalletTab extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _navigateToWalletList(BuildContext context) {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const WalletListScreen()),
+      (route) => false,
     );
   }
 
@@ -470,6 +493,87 @@ class _WalletTab extends ConsumerWidget {
   }
 }
 
+// Wallet Selector Widget - Tap to go to WalletListScreen
+class _WalletSelector extends StatelessWidget {
+  final String walletName;
+  final String address;
+  final VoidCallback onTap;
+
+  const _WalletSelector({
+    required this.walletName,
+    required this.address,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: AppTheme.primaryGradient,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.account_balance_wallet_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  walletName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  address,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.white.withOpacity(0.8),
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NetworkSelector extends StatelessWidget {
   final Network network;
   final VoidCallback onTap;
@@ -483,9 +587,9 @@ class _NetworkSelector extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: AppTheme.primaryColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.2)),
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Theme.of(context).dividerColor),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -494,7 +598,7 @@ class _NetworkSelector extends StatelessWidget {
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.2),
+                color: AppTheme.primaryColor.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -508,67 +612,20 @@ class _NetworkSelector extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Text(
-              network.name,
+              network.symbol,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.primaryColor,
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppTheme.primaryColor),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AddressChip extends StatelessWidget {
-  final String address;
-
-  const _AddressChip({required this.address});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        final wallet = ProviderScope.containerOf(context)
-            .read(currentWalletProvider)
-            .valueOrNull;
-        if (wallet != null) {
-          Clipboard.setData(ClipboardData(text: wallet.address));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Text('Đã copy địa chỉ'),
-                ],
-              ),
-              backgroundColor: AppTheme.successColor,
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 2),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: Theme.of(context).textTheme.bodySmall?.color,
             ),
-          );
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(address, style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
-            const SizedBox(width: 4),
-            Icon(Icons.copy_rounded, size: 16, color: Theme.of(context).textTheme.bodySmall?.color),
           ],
         ),
       ),
