@@ -8,21 +8,33 @@ import '../../core/services/blockchain_service.dart';
 import '../../shared/widgets/common_widgets.dart';
 
 class SendScreen extends ConsumerStatefulWidget {
-  const SendScreen({super.key});
+  final String? initialAddress;
+  
+  const SendScreen({super.key, this.initialAddress});
 
   @override
   ConsumerState<SendScreen> createState() => _SendScreenState();
 }
 
 class _SendScreenState extends ConsumerState<SendScreen> {
-  final _formKey = GlobalKey<FormState>();
   final _addressController = TextEditingController();
   final _amountController = TextEditingController();
-  
+  final _blockchainService = BlockchainService();
+
   bool _isLoading = false;
-  bool _isEstimatingFee = false;
-  BigInt? _estimatedFee;
-  String? _feeError;
+  bool _isEstimatingGas = false;
+  BigInt _estimatedGas = BigInt.zero;
+  BigInt _gasPrice = BigInt.zero;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialAddress != null) {
+      _addressController.text = widget.initialAddress!;
+    }
+    _loadGasPrice();
+  }
 
   @override
   void dispose() {
@@ -31,274 +43,110 @@ class _SendScreenState extends ConsumerState<SendScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final balanceAsync = ref.watch(nativeBalanceProvider);
-    final network = ref.watch(selectedNetworkProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Gửi'),
-      ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              // Balance info
-              balanceAsync.when(
-                data: (balance) => Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.account_balance_wallet_rounded,
-                        color: AppTheme.primaryColor,
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Số dư khả dụng',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          Text(
-                            '${balance.displayBalance} ${balance.token.symbol}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                loading: () => const LinearProgressIndicator(),
-                error: (_, __) => const SizedBox.shrink(),
-              ),
-              const SizedBox(height: 24),
-
-              // Recipient address
-              CustomTextField(
-                label: 'Địa chỉ người nhận',
-                hint: '0x...',
-                controller: _addressController,
-                keyboardType: TextInputType.text,
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.qr_code_scanner_rounded),
-                      onPressed: () {
-                        // TODO: Open QR scanner
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Quét QR sẽ có trong bản cập nhật'),
-                          ),
-                        );
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.paste_rounded),
-                      onPressed: () async {
-                        final data = await Clipboard.getData('text/plain');
-                        if (data?.text != null) {
-                          _addressController.text = data!.text!;
-                          _estimateFee();
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Vui lòng nhập địa chỉ';
-                  }
-                  final address = value.trim();
-                  if (!address.startsWith('0x') || address.length != 42) {
-                    return 'Địa chỉ không hợp lệ';
-                  }
-                  return null;
-                },
-                onChanged: (_) => _estimateFee(),
-              ),
-              const SizedBox(height: 20),
-
-              // Amount
-              CustomTextField(
-                label: 'Số lượng',
-                hint: '0.0',
-                controller: _amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                suffixIcon: TextButton(
-                  onPressed: () {
-                    final balance = balanceAsync.valueOrNull;
-                    if (balance != null) {
-                      // Set max amount (leave some for gas)
-                      final maxAmount = balance.formattedBalance * 0.95;
-                      _amountController.text = maxAmount.toStringAsFixed(6);
-                      _estimateFee();
-                    }
-                  },
-                  child: const Text('MAX'),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Vui lòng nhập số lượng';
-                  }
-                  final amount = double.tryParse(value.trim());
-                  if (amount == null || amount <= 0) {
-                    return 'Số lượng không hợp lệ';
-                  }
-                  final balance = balanceAsync.valueOrNull;
-                  if (balance != null && amount > balance.formattedBalance) {
-                    return 'Số dư không đủ';
-                  }
-                  return null;
-                },
-                onChanged: (_) => _estimateFee(),
-              ),
-              const SizedBox(height: 24),
-
-              // Fee estimation
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Phí mạng (Gas)',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        if (_isEstimatingFee)
-                          const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        else if (_estimatedFee != null)
-                          Text(
-                            '~${(_estimatedFee! / BigInt.from(10).pow(18)).toStringAsFixed(6)} ${network.symbol}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          )
-                        else
-                          Text(
-                            _feeError ?? 'Nhập thông tin để ước tính',
-                            style: TextStyle(
-                              color: _feeError != null
-                                  ? AppTheme.errorColor
-                                  : Theme.of(context).textTheme.bodySmall?.color,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const InfoBanner(
-                      message: 'Phí mạng được trả cho validators để xử lý giao dịch. '
-                          'VWallet không thu thêm bất kỳ phí nào.',
-                      type: InfoBannerType.info,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Warning
-              const InfoBanner(
-                message: 'Hãy kiểm tra kỹ địa chỉ trước khi gửi. '
-                    'Giao dịch blockchain không thể hoàn tác.',
-                type: InfoBannerType.warning,
-              ),
-              const SizedBox(height: 24),
-
-              // Send button
-              PrimaryButton(
-                text: 'Xác nhận gửi',
-                isLoading: _isLoading,
-                onPressed: () => _confirmSend(context),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _loadGasPrice() async {
+    try {
+      final network = ref.read(selectedNetworkProvider);
+      _gasPrice = await _blockchainService.getGasPrice(network);
+      setState(() {});
+    } catch (e) {
+      debugPrint('Failed to load gas price: $e');
+    }
   }
 
-  Future<void> _estimateFee() async {
+  Future<void> _estimateGas() async {
     final address = _addressController.text.trim();
     final amountText = _amountController.text.trim();
     
-    if (address.length != 42 || !address.startsWith('0x')) {
-      return;
-    }
-    
-    final amount = double.tryParse(amountText);
-    if (amount == null || amount <= 0) {
+    if (!_isValidAddress(address) || amountText.isEmpty) {
       return;
     }
 
-    setState(() {
-      _isEstimatingFee = true;
-      _feeError = null;
-    });
+    final amount = double.tryParse(amountText);
+    if (amount == null || amount <= 0) return;
+
+    setState(() => _isEstimatingGas = true);
 
     try {
-      final network = ref.read(selectedNetworkProvider);
       final wallet = ref.read(currentWalletProvider).valueOrNull;
+      final network = ref.read(selectedNetworkProvider);
       
       if (wallet == null) return;
 
-      final blockchain = BlockchainService();
       final valueWei = BigInt.from(amount * 1e18);
       
-      final gasLimit = await blockchain.estimateGas(
+      _estimatedGas = await _blockchainService.estimateGas(
         from: wallet.address,
         to: address,
         value: valueWei,
         network: network,
       );
       
-      final gasPrice = await blockchain.getGasPrice(network);
-      
-      setState(() {
-        _estimatedFee = gasLimit * gasPrice;
-        _isEstimatingFee = false;
-      });
+      setState(() {});
     } catch (e) {
-      setState(() {
-        _feeError = 'Không thể ước tính phí';
-        _isEstimatingFee = false;
-      });
+      debugPrint('Failed to estimate gas: $e');
+    } finally {
+      setState(() => _isEstimatingGas = false);
     }
   }
 
-  Future<void> _confirmSend(BuildContext context) async {
-    if (!_formKey.currentState!.validate()) return;
+  bool _isValidAddress(String address) {
+    if (!address.startsWith('0x')) return false;
+    if (address.length != 42) return false;
+    return true;
+  }
 
+  Future<void> _send() async {
     final address = _addressController.text.trim();
-    final amount = double.parse(_amountController.text.trim());
-    final network = ref.read(selectedNetworkProvider);
+    final amountText = _amountController.text.trim();
+
+    // Validate
+    if (!_isValidAddress(address)) {
+      setState(() => _error = 'Địa chỉ không hợp lệ');
+      return;
+    }
+
+    final amount = double.tryParse(amountText);
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Số lượng không hợp lệ');
+      return;
+    }
 
     // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
+    final confirmed = await _showConfirmationDialog(address, amount);
+    if (!confirmed) return;
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final network = ref.read(selectedNetworkProvider);
+      final valueWei = BigInt.from(amount * 1e18);
+
+      final txHash = await _blockchainService.sendTransaction(
+        to: address,
+        value: valueWei,
+        network: network,
+      );
+
+      if (mounted) {
+        _showSuccessDialog(txHash);
+      }
+    } catch (e) {
+      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<bool> _showConfirmationDialog(String address, double amount) async {
+    final network = ref.read(selectedNetworkProvider);
+    final fee = (_estimatedGas * _gasPrice) / BigInt.from(1e18);
+
+    return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Xác nhận giao dịch'),
@@ -306,29 +154,14 @@ class _SendScreenState extends ConsumerState<SendScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _ConfirmRow(label: 'Đến', value: '${address.substring(0, 10)}...${address.substring(address.length - 8)}'),
+            _ConfirmRow(label: 'Số lượng', value: '$amount ${network.symbol}'),
+            _ConfirmRow(label: 'Phí mạng', value: '~${fee.toStringAsFixed(6)} ${network.symbol}'),
+            const Divider(),
             _ConfirmRow(
-              label: 'Gửi đến',
-              value: '${address.substring(0, 8)}...${address.substring(address.length - 6)}',
-            ),
-            const SizedBox(height: 12),
-            _ConfirmRow(
-              label: 'Số lượng',
-              value: '$amount ${network.symbol}',
-            ),
-            if (_estimatedFee != null) ...[
-              const SizedBox(height: 12),
-              _ConfirmRow(
-                label: 'Phí ước tính',
-                value: '~${(_estimatedFee! / BigInt.from(10).pow(18)).toStringAsFixed(6)} ${network.symbol}',
-              ),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              'Mạng: ${network.name}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
+              label: 'Tổng',
+              value: '${(amount + fee).toStringAsFixed(6)} ${network.symbol}',
+              isBold: true,
             ),
           ],
         ),
@@ -343,43 +176,10 @@ class _SendScreenState extends ConsumerState<SendScreen> {
           ),
         ],
       ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final blockchain = BlockchainService();
-      final valueWei = BigInt.from(amount * 1e18);
-      
-      final txHash = await blockchain.sendTransaction(
-        to: address,
-        value: valueWei,
-        network: network,
-      );
-
-      if (mounted) {
-        Navigator.pop(context);
-        _showSuccessDialog(context, txHash, network.explorerTxUrl);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi: ${e.toString()}'),
-            backgroundColor: AppTheme.errorColor,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    ) ?? false;
   }
 
-  void _showSuccessDialog(BuildContext context, String txHash, String explorerUrl) {
+  void _showSuccessDialog(String txHash) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -402,7 +202,7 @@ class _SendScreenState extends ConsumerState<SendScreen> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Giao dịch đã gửi!',
+              'Gửi thành công!',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -425,21 +225,15 @@ class _SendScreenState extends ConsumerState<SendScreen> {
                   Expanded(
                     child: Text(
                       '${txHash.substring(0, 10)}...${txHash.substring(txHash.length - 8)}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    icon: const Icon(Icons.copy, size: 18),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: txHash));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Đã copy hash giao dịch'),
-                          duration: Duration(seconds: 1),
-                        ),
+                        const SnackBar(content: Text('Đã copy hash')),
                       );
                     },
                   ),
@@ -449,17 +243,191 @@ class _SendScreenState extends ConsumerState<SendScreen> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              // TODO: Open explorer
-            },
-            child: const Text('Xem trên Explorer'),
-          ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back
+            },
             child: const Text('Đóng'),
           ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final network = ref.watch(selectedNetworkProvider);
+    final balanceAsync = ref.watch(nativeBalanceProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Gửi'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Available balance
+            balanceAsync.when(
+              data: (balance) => Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Số dư khả dụng'),
+                    Text(
+                      '${balance.displayBalance} ${network.symbol}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              loading: () => const LinearProgressIndicator(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 24),
+
+            // Recipient address
+            const Text(
+              'Địa chỉ người nhận',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _addressController,
+              decoration: InputDecoration(
+                hintText: '0x...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      onPressed: () {
+                        // Navigate to QR scanner
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.content_paste),
+                      onPressed: () async {
+                        final data = await Clipboard.getData('text/plain');
+                        if (data?.text != null) {
+                          _addressController.text = data!.text!;
+                          _estimateGas();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              onChanged: (_) => _estimateGas(),
+            ),
+            const SizedBox(height: 20),
+
+            // Amount
+            const Text(
+              'Số lượng',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: '0.0',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                suffixIcon: TextButton(
+                  onPressed: () {
+                    final balance = balanceAsync.valueOrNull;
+                    if (balance != null) {
+                      // Use 95% of balance to leave room for gas
+                      final maxAmount = (balance.balance * BigInt.from(95)) ~/ BigInt.from(100);
+                      final displayAmount = maxAmount / BigInt.from(10).pow(18);
+                      _amountController.text = displayAmount.toStringAsFixed(6);
+                      _estimateGas();
+                    }
+                  },
+                  child: const Text('MAX'),
+                ),
+                suffix: Text(network.symbol),
+              ),
+              onChanged: (_) => _estimateGas(),
+            ),
+            const SizedBox(height: 20),
+
+            // Gas estimation
+            if (_estimatedGas > BigInt.zero || _isEstimatingGas)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Phí mạng ước tính'),
+                        _isEstimatingGas
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(
+                                '~${((_estimatedGas * _gasPrice) / BigInt.from(1e18)).toStringAsFixed(6)} ${network.symbol}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 20),
+
+            // Error
+            if (_error != null) ...[
+              InfoBanner(
+                message: _error!,
+                type: InfoBannerType.error,
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            // Send button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _send,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text('Gửi'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -468,25 +436,30 @@ class _SendScreenState extends ConsumerState<SendScreen> {
 class _ConfirmRow extends StatelessWidget {
   final String label;
   final String value;
+  final bool isBold;
 
-  const _ConfirmRow({required this.label, required this.value});
+  const _ConfirmRow({
+    required this.label,
+    required this.value,
+    this.isBold = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Theme.of(context).textTheme.bodySmall?.color,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+            ),
           ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -7,12 +7,14 @@ import '../../core/models/network.dart';
 import '../../core/providers/wallet_provider.dart';
 import '../../core/services/notification_service.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/backup_reminder_banner.dart';
 import '../send/send_screen.dart';
 import '../receive/receive_screen.dart';
 import '../scan/qr_scanner_screen.dart';
 import '../swap/swap_screen.dart';
 import '../history/transaction_history_screen.dart';
 import '../settings/settings_screen.dart';
+import '../settings/backup_wallet_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -35,7 +37,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     await _notificationService.initialize();
     await _notificationService.requestPermissions();
     
-    // Start monitoring wallet address
     final wallet = ref.read(currentWalletProvider).valueOrNull;
     final network = ref.read(selectedNetworkProvider);
     
@@ -115,7 +116,6 @@ class _WalletTab extends ConsumerWidget {
         },
         child: CustomScrollView(
           slivers: [
-            // Header
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -130,16 +130,40 @@ class _WalletTab extends ConsumerWidget {
                           network: selectedNetwork,
                           onTap: () => _showNetworkSelector(context, ref),
                         ),
-                        walletAsync.when(
-                          data: (wallet) => wallet != null
-                              ? _AddressChip(address: wallet.shortAddress)
-                              : const SizedBox.shrink(),
-                          loading: () => const SizedBox.shrink(),
-                          error: (_, __) => const SizedBox.shrink(),
+                        Row(
+                          children: [
+                            // Backup reminder chip
+                            BackupReminderChip(
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const BackupWalletScreen(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            walletAsync.when(
+                              data: (wallet) => wallet != null
+                                  ? _AddressChip(address: wallet.shortAddress)
+                                  : const SizedBox.shrink(),
+                              loading: () => const SizedBox.shrink(),
+                              error: (_, __) => const SizedBox.shrink(),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+
+                    // Backup reminder banner
+                    BackupReminderBanner(
+                      onBackupPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const BackupWalletScreen(),
+                        ),
+                      ),
+                    ),
                     
                     // Balance Card
                     balanceAsync.when(
@@ -164,7 +188,7 @@ class _WalletTab extends ConsumerWidget {
               ),
             ),
 
-            // Quick Actions - Updated with QR Scanner and Swap
+            // Quick Actions
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -191,7 +215,6 @@ class _WalletTab extends ConsumerWidget {
                               );
                               
                               if (result != null && context.mounted) {
-                                // Navigate to send screen with scanned address
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -246,7 +269,9 @@ class _WalletTab extends ConsumerWidget {
                         ),
                         TextButton(
                           onPressed: () {
-                            // TODO: Add token
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Tính năng sẽ có trong bản cập nhật')),
+                            );
                           },
                           child: const Text('+ Thêm token'),
                         ),
@@ -445,7 +470,6 @@ class _WalletTab extends ConsumerWidget {
   }
 }
 
-// Keep existing widget classes from original home_screen.dart
 class _NetworkSelector extends StatelessWidget {
   final Network network;
   final VoidCallback onTap;
@@ -765,23 +789,6 @@ class _ExchangeOption extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-// Updated SendScreen with initial address parameter
-class SendScreen extends StatelessWidget {
-  final String? initialAddress;
-  
-  const SendScreen({super.key, this.initialAddress});
-
-  @override
-  Widget build(BuildContext context) {
-    // This is a placeholder - the actual implementation should be in send_screen.dart
-    // with support for initialAddress parameter
-    return Scaffold(
-      appBar: AppBar(title: const Text('Gửi')),
-      body: Center(child: Text('Send screen with address: $initialAddress')),
     );
   }
 }

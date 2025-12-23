@@ -1,185 +1,168 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/wallet.dart';
 import '../models/network.dart';
 import '../models/token.dart';
-import '../models/wallet.dart';
 import '../services/wallet_service.dart';
 import '../services/blockchain_service.dart';
 
-// Wallet Service Provider
-final walletServiceProvider = Provider<WalletService>((ref) {
-  return WalletService();
+// =============================================
+// BACKUP STATUS PROVIDER - Trust Wallet style
+// =============================================
+final backupStatusProvider = StateNotifierProvider<BackupStatusNotifier, bool>((ref) {
+  return BackupStatusNotifier();
 });
 
-// Blockchain Service Provider
-final blockchainServiceProvider = Provider<BlockchainService>((ref) {
-  return BlockchainService();
-});
-
-// Current Wallet Provider
-final currentWalletProvider = StateNotifierProvider<WalletNotifier, AsyncValue<Wallet?>>((ref) {
-  return WalletNotifier(ref);
-});
-
-class WalletNotifier extends StateNotifier<AsyncValue<Wallet?>> {
-  final Ref _ref;
-  
-  WalletNotifier(this._ref) : super(const AsyncValue.loading()) {
-    _loadWallet();
+class BackupStatusNotifier extends StateNotifier<bool> {
+  BackupStatusNotifier() : super(false) {
+    _loadStatus();
   }
 
-  Future<void> _loadWallet() async {
-    state = const AsyncValue.loading();
-    try {
-      final wallet = await _ref.read(walletServiceProvider).getCurrentWallet();
-      state = AsyncValue.data(wallet);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
+  static const _key = 'wallet_backed_up';
+
+  Future<void> _loadStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_key) ?? false;
   }
 
-  Future<void> createWallet() async {
-    state = const AsyncValue.loading();
-    try {
-      final wallet = await _ref.read(walletServiceProvider).createWallet();
-      state = AsyncValue.data(wallet);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> importFromMnemonic(String mnemonic) async {
-    state = const AsyncValue.loading();
-    try {
-      final wallet = await _ref.read(walletServiceProvider).importFromMnemonic(mnemonic);
-      state = AsyncValue.data(wallet);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> importFromPrivateKey(String privateKey) async {
-    state = const AsyncValue.loading();
-    try {
-      final wallet = await _ref.read(walletServiceProvider).importFromPrivateKey(privateKey);
-      state = AsyncValue.data(wallet);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> deleteWallet() async {
-    await _ref.read(walletServiceProvider).deleteWallet();
-    state = const AsyncValue.data(null);
-  }
-
-  void refresh() {
-    _loadWallet();
+  Future<void> setBackedUp(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, value);
+    state = value;
   }
 }
 
-// Selected Network Provider
+// =============================================
+// CURRENT WALLET PROVIDER
+// =============================================
+final currentWalletProvider = AsyncNotifierProvider<WalletNotifier, Wallet?>(() {
+  return WalletNotifier();
+});
+
+class WalletNotifier extends AsyncNotifier<Wallet?> {
+  final WalletService _walletService = WalletService();
+
+  @override
+  Future<Wallet?> build() async {
+    return await _walletService.getCurrentWallet();
+  }
+
+  /// Quick create wallet - Trust Wallet style (no seed phrase shown)
+  Future<void> createWalletQuick() async {
+    state = const AsyncValue.loading();
+    
+    try {
+      final wallet = await _walletService.createWallet();
+      
+      // Mark as NOT backed up - will show reminder banner
+      await ref.read(backupStatusProvider.notifier).setBackedUp(false);
+      
+      state = AsyncValue.data(wallet);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
+    }
+  }
+
+  /// Create wallet with seed phrase verification (old flow)
+  Future<String> createWalletWithSeed() async {
+    final mnemonic = _walletService.generateMnemonic();
+    return mnemonic;
+  }
+
+  /// Confirm wallet creation after seed phrase backup
+  Future<void> confirmWalletCreation(String mnemonic) async {
+    state = const AsyncValue.loading();
+    
+    try {
+      final wallet = await _walletService.importFromMnemonic(mnemonic);
+      
+      // Mark as backed up since user saw the seed
+      await ref.read(backupStatusProvider.notifier).setBackedUp(true);
+      
+      state = AsyncValue.data(wallet);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
+    }
+  }
+
+  /// Import wallet from mnemonic
+  Future<void> importFromMnemonic(String mnemonic) async {
+    state = const AsyncValue.loading();
+    
+    try {
+      final wallet = await _walletService.importFromMnemonic(mnemonic);
+      
+      // Mark as backed up since user has the seed
+      await ref.read(backupStatusProvider.notifier).setBackedUp(true);
+      
+      state = AsyncValue.data(wallet);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
+    }
+  }
+
+  /// Import wallet from private key
+  Future<void> importFromPrivateKey(String privateKey) async {
+    state = const AsyncValue.loading();
+    
+    try {
+      final wallet = await _walletService.importFromPrivateKey(privateKey);
+      
+      // Mark as backed up - user should have their key saved
+      await ref.read(backupStatusProvider.notifier).setBackedUp(true);
+      
+      state = AsyncValue.data(wallet);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
+    }
+  }
+
+  /// Delete wallet
+  Future<void> deleteWallet() async {
+    await _walletService.deleteWallet();
+    await ref.read(backupStatusProvider.notifier).setBackedUp(false);
+    state = const AsyncValue.data(null);
+  }
+
+  /// Refresh wallet
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = AsyncValue.data(await _walletService.getCurrentWallet());
+  }
+}
+
+// =============================================
+// NETWORK PROVIDERS
+// =============================================
 final selectedNetworkProvider = StateProvider<Network>((ref) {
   return Network.ethereum;
 });
 
-// All Networks Provider
 final allNetworksProvider = Provider<List<Network>>((ref) {
   return Network.allNetworks;
 });
 
-// Native Token Balance Provider
+// =============================================
+// BALANCE PROVIDER
+// =============================================
 final nativeBalanceProvider = FutureProvider.autoDispose<TokenBalance>((ref) async {
-  final wallet = ref.watch(currentWalletProvider).valueOrNull;
+  final wallet = await ref.watch(currentWalletProvider.future);
   final network = ref.watch(selectedNetworkProvider);
   
   if (wallet == null) {
     throw Exception('No wallet found');
   }
 
-  final blockchain = ref.read(blockchainServiceProvider);
-  final balance = await blockchain.getNativeBalance(wallet.address, network);
-  
-  final nativeToken = Token.getNativeToken(network.id);
-  
+  final blockchainService = BlockchainService();
+  final balance = await blockchainService.getNativeBalance(wallet.address, network);
+
   return TokenBalance(
-    token: nativeToken,
+    token: Token.getNativeToken(network.id),
     balance: balance,
   );
 });
-
-// Gas Price Provider
-final gasPriceProvider = FutureProvider.autoDispose<BigInt>((ref) async {
-  final network = ref.watch(selectedNetworkProvider);
-  final blockchain = ref.read(blockchainServiceProvider);
-  return await blockchain.getGasPrice(network);
-});
-
-// Transaction Fee Estimate Provider
-final transactionFeeProvider = FutureProvider.autoDispose.family<BigInt, TransactionParams>((ref, params) async {
-  final network = ref.watch(selectedNetworkProvider);
-  final blockchain = ref.read(blockchainServiceProvider);
-  final wallet = ref.watch(currentWalletProvider).valueOrNull;
-  
-  if (wallet == null) {
-    throw Exception('No wallet found');
-  }
-
-  final gasLimit = await blockchain.estimateGas(
-    from: wallet.address,
-    to: params.to,
-    value: params.value,
-    network: network,
-  );
-  
-  final gasPrice = await blockchain.getGasPrice(network);
-  
-  return gasLimit * gasPrice;
-});
-
-// Parameters for transaction fee estimation
-class TransactionParams {
-  final String to;
-  final BigInt value;
-
-  TransactionParams({required this.to, required this.value});
-  
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TransactionParams &&
-          runtimeType == other.runtimeType &&
-          to == other.to &&
-          value == other.value;
-
-  @override
-  int get hashCode => to.hashCode ^ value.hashCode;
-}
-
-// Send Transaction Provider
-final sendTransactionProvider = FutureProvider.autoDispose.family<String, SendTransactionParams>((ref, params) async {
-  final network = ref.watch(selectedNetworkProvider);
-  final blockchain = ref.read(blockchainServiceProvider);
-  
-  return await blockchain.sendTransaction(
-    to: params.to,
-    value: params.value,
-    network: network,
-    gasLimit: params.gasLimit,
-    gasPrice: params.gasPrice,
-  );
-});
-
-class SendTransactionParams {
-  final String to;
-  final BigInt value;
-  final BigInt? gasLimit;
-  final BigInt? gasPrice;
-
-  SendTransactionParams({
-    required this.to,
-    required this.value,
-    this.gasLimit,
-    this.gasPrice,
-  });
-}
