@@ -28,10 +28,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialTab;
+    debugPrint('MainScreen:init initialTab=$_currentIndex');
   }
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('MainScreen:build currentIndex=$_currentIndex');
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
@@ -53,7 +55,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: (index) => setState(() {
+                _currentIndex = index;
+                debugPrint('MainScreen:onTap -> tab=$_currentIndex');
+              }),
           type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(

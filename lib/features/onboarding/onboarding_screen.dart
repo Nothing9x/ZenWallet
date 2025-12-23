@@ -3,9 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/app_theme.dart';
 import '../../core/providers/wallet_provider.dart';
-import '../../shared/widgets/common_widgets.dart';
 import '../home/home_screen.dart';
-import 'import_wallet_screen.dart';
+import 'create_password_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -159,8 +158,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  // Create wallet button - ONE TAP
-                  _CreateWalletButton(),
+                  // Create wallet button - go to PIN creation flow
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CreatePasswordScreen(isImport: false),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Tạo ví mới'),
+                    ),
+                  ),
                   const SizedBox(height: 12),
 
                   // Import wallet button
@@ -171,7 +186,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const ImportWalletScreen(),
+                            builder: (_) => const CreatePasswordScreen(isImport: true),
                           ),
                         );
                       },
@@ -191,68 +206,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-class _CreateWalletButton extends ConsumerStatefulWidget {
-  @override
-  ConsumerState<_CreateWalletButton> createState() => _CreateWalletButtonState();
-}
 
-class _CreateWalletButtonState extends ConsumerState<_CreateWalletButton> {
-  bool _isLoading = false;
-
-  Future<void> _createWallet() async {
-    setState(() => _isLoading = true);
-
-    try {
-      // Create wallet with one tap - no seed phrase shown
-      await ref.read(currentWalletProvider.notifier).createWalletQuick();
-
-      if (mounted) {
-        // Navigate to home
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi tạo ví: $e'),
-            backgroundColor: AppTheme.errorColor,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _createWallet,
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-        ),
-        child: _isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
-            : const Text('Tạo ví mới'),
-      ),
-    );
-  }
-}
 
 class OnboardingPage {
   final IconData icon;
