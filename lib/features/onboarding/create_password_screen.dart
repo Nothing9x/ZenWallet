@@ -121,171 +121,279 @@ class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
     final displayText = _isConfirming ? 'Xác nhận mã PIN' : 'Tạo mã PIN';
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Bảo vệ ví'),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Step indicator
-            Text(
-              displayText,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              _isConfirming ? 'Nhập lại mã PIN để xác nhận' : 'Tạo mã PIN gồm 6 chữ số để khóa ứng dụng',
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 40),
-
-            // PIN Display with dots
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  6,
-                  (index) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: index < currentPin.length ? Colors.blue : Colors.grey[300],
+      body: Container(
+        color: const Color(0xFFF6F6F8),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header with back button
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 24, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF0e121b)),
+                      onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Zen Wallet',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0e121b),
+                        ),
                       ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+              // Main content
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 24),
+                        // Title
+                        Text(
+                          displayText,
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0e121b),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        // Subtitle
+                        Text(
+                          _isConfirming ? 'Nhập lại mã PIN để xác nhận' : 'Thiết lập mã PIN 6 số để bảo vệ ví',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[500],
+                            fontWeight: FontWeight.w400,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 28),
+                        // PIN indicator dots
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(
+                            6,
+                            (index) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 10),
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: index < currentPin.length
+                                      ? const Color(0xFF306ee8)
+                                      : Colors.grey[350]!,
+                                  width: 2,
+                                ),
+                                color: index < currentPin.length
+                                    ? const Color(0xFF306ee8)
+                                    : Colors.transparent,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 20),
+                          Text(
+                            _error!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        // Biometric option
+                        if (!_isConfirming && _biometricAvailable) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(color: Colors.grey[200]!),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.05),
+                                  blurRadius: 8,
+                                )
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: const Color(0xFF306ee8).withOpacity(0.1),
+                                        ),
+                                        child: const Icon(
+                                          Icons.face,
+                                          color: Color(0xFF306ee8),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Đăng nhập bằng FaceID',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 14,
+                                                color: Color(0xFF0e121b),
+                                              ),
+                                            ),
+                                            Text(
+                                              'Tiện lợi & Bảo mật',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[500],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 44,
+                                  height: 24,
+                                  child: Switch(
+                                    value: _useBiometrics,
+                                    onChanged: (value) {
+                                      if (value) {
+                                        _authenticateBiometric();
+                                      } else {
+                                        setState(() => _useBiometrics = false);
+                                      }
+                                    },
+                                    activeColor: const Color(0xFF306ee8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                      ],
                     ),
                   ),
                 ),
               ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Biometric option (only on first PIN entry, below PIN dots)
-            if (!_isConfirming && _biometricAvailable) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(12),
+              // Keypad
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 24,
+                    childAspectRatio: 1.2,
+                  ),
+                  itemCount: 12,
+                  itemBuilder: (context, index) {
+                    if (index < 9) {
+                      final num = index + 1;
+                      return _buildNumpadButton(num.toString(), () => _addDigit(num.toString()));
+                    } else if (index == 9) {
+                      return const SizedBox.shrink();
+                    } else if (index == 10) {
+                      return _buildNumpadButton('0', () => _addDigit('0'));
+                    } else {
+                      return _buildBackspaceButton();
+                    }
+                  },
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              ),
+              const SizedBox(height: 8),
+              // Bottom button and disclaimer
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: Column(
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Kích hoạt vân tay/Face ID',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading || currentPin.length != 6 ? null : _confirmOrSubmit,
+                        icon: const Icon(Icons.arrow_forward, size: 20),
+                        label: const Text('Xác nhận'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF306ee8),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey[300],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(50),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Mở khóa nhanh hơn với sinh trắc học',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          elevation: 2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(Icons.verified_user, size: 14, color: Colors.grey[500]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Zen Wallet không lưu trữ mã PIN của bạn.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[500],
+                                height: 1.3,
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    if (_useBiometrics)
-                      Container(
-                        width: 24,
-                        height: 24,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.green,
-                        ),
-                        child: const Icon(
-                          Icons.check,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      )
-                    else
-                      ElevatedButton.icon(
-                        onPressed: _biometricAvailable && !_useBiometrics
-                            ? _authenticateBiometric
-                            : null,
-                        icon: const Icon(Icons.fingerprint, size: 18),
-                        label: const Text('Kích hoạt'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
             ],
-
-            if (_error != null) ...[
-              Text(
-                _error!,
-                style: const TextStyle(color: Colors.red, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Number Keypad (full width)
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 1.2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-              ),
-              itemCount: 12,
-              itemBuilder: (context, index) {
-                if (index < 9) {
-                  // Numbers 1-9
-                  final num = index + 1;
-                  return _buildNumpadButton(num.toString(), () => _addDigit(num.toString()));
-                } else if (index == 9) {
-                  // 0
-                  return _buildNumpadButton('0', () => _addDigit('0'));
-                } else if (index == 10) {
-                  // Delete button (same for both screens)
-                  return _buildDeleteButton();
-                } else if (index == 11) {
-                  // Submit or Next button
-                  if (_isConfirming) {
-                    return _buildActionButton(
-                      widget.isImport ? 'Tiếp tục' : 'Tạo ví',
-                      _isLoading || _confirmInput.length != 6
-                          ? null
-                          : _onSubmit,
-                      isLoading: _isLoading,
-                    );
-                  } else {
-                    return _buildActionButton(
-                      'Tiếp tục',
-                      _pinInput.length == 6 ? () {
-                        setState(() => _isConfirming = true);
-                      } : null,
-                    );
-                  }
-                }
-                return const SizedBox.shrink();
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  void _confirmOrSubmit() async {
+    if (!_isConfirming) {
+      // Move to confirmation screen
+      setState(() => _isConfirming = true);
+      _confirmInput = '';
+    } else {
+      // Submit
+      await _onSubmit();
+    }
   }
 
   Widget _buildNumpadButton(String label, VoidCallback onTap) {
@@ -293,19 +401,14 @@ class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
+        borderRadius: BorderRadius.circular(50),
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF0e121b),
             ),
           ),
         ),
@@ -313,64 +416,25 @@ class _CreatePasswordScreenState extends ConsumerState<CreatePasswordScreen> {
     );
   }
 
-  Widget _buildDeleteButton() {
+  Widget _buildBackspaceButton() {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _deleteDigit,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.red[200]!),
-            borderRadius: BorderRadius.circular(10),
-            color: Colors.red[50],
-          ),
-          child: Center(
-            child: Icon(
-              Icons.backspace_outlined,
-              color: Colors.red,
-              size: 20,
+        borderRadius: BorderRadius.circular(50),
+        child: Center(
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF0e121b),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButton(String label, VoidCallback? onTap, {bool isLoading = false}) {
-    final isEnabled = onTap != null && !isLoading;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: isEnabled ? onTap : null,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: isEnabled ? Colors.blue : Colors.grey[300]!,
+            child: const Icon(
+              Icons.backspace,
+              size: 18,
+              color: Colors.white,
             ),
-            borderRadius: BorderRadius.circular(10),
-            color: isEnabled ? Colors.blue : Colors.grey[100],
-          ),
-          child: Center(
-            child: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(Colors.white),
-                    ),
-                  )
-                : Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isEnabled ? Colors.white : Colors.grey,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
           ),
         ),
       ),
